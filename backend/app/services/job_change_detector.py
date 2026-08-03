@@ -3,6 +3,7 @@ Compares an enriched profile against the last stored snapshot and creates
 a JobChangeEvent when the company or title has changed.
 """
 
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -10,9 +11,44 @@ from sqlalchemy.orm import Session
 
 from app.models import EmploymentSnapshot, EventStatus, JobChangeEvent, Person
 
+_LEGAL_SUFFIXES = re.compile(
+    r"\b(inc|incorporated|llc|ltd|limited|corp|corporation|co|company|"
+    r"group|holdings|plc)\b\.?",
+    re.IGNORECASE,
+)
+
 
 def _normalize(value: Optional[str]) -> str:
     return (value or "").strip().lower()
+
+
+def _company_key(value: Optional[str]) -> str:
+    """
+    Collapse a company name to a bare comparison key: strip punctuation,
+    legal suffixes (Inc, LLC, Corp...), and all whitespace, so
+    "Swiss Monkey, Inc" and "SwissMonkey" normalize to the same key.
+    """
+    text = (value or "").lower()
+    text = re.sub(r"[.,]", "", text)
+    text = _LEGAL_SUFFIXES.sub("", text)
+    text = re.sub(r"\s+", "", text)
+    return text
+
+
+def _company_changed(new_company: Optional[str], baseline_company: Optional[str]) -> bool:
+    if not baseline_company:
+        return False
+    new_key = _company_key(new_company)
+    baseline_key = _company_key(baseline_company)
+    if not new_key or not baseline_key:
+        return _normalize(new_company) != _normalize(baseline_company)
+    if new_key == baseline_key:
+        return False
+    # One name is a shortened/abbreviated form of the other
+    # (e.g. "Superbrewed" vs "Superbrewed Food Inc").
+    if new_key in baseline_key or baseline_key in new_key:
+        return False
+    return True
 
 
 def detect_and_record(
@@ -54,7 +90,7 @@ def detect_and_record(
     baseline_title = latest_snapshot.title if latest_snapshot else person.current_title
 
     event = None
-    company_changed = bool(baseline_company) and _normalize(new_company) != _normalize(baseline_company)
+    company_changed = _company_changed(new_company, baseline_company)
     title_changed = bool(baseline_title) and _normalize(new_title) != _normalize(baseline_title)
 
     if company_changed or title_changed:
