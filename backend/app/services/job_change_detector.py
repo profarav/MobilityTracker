@@ -47,32 +47,32 @@ def detect_and_record(
 
     person.last_checked_at = datetime.utcnow()
 
+    # Compare against the last enrichment snapshot if one exists, otherwise
+    # fall back to the person's known company/title (e.g. from CSV import) —
+    # that's real baseline data too, not something to silently skip.
+    baseline_company = latest_snapshot.company if latest_snapshot else person.current_company
+    baseline_title = latest_snapshot.title if latest_snapshot else person.current_title
+
     event = None
+    company_changed = bool(baseline_company) and _normalize(new_company) != _normalize(baseline_company)
+    title_changed = bool(baseline_title) and _normalize(new_title) != _normalize(baseline_title)
 
-    if latest_snapshot is not None:
-        company_changed = _normalize(new_company) != _normalize(latest_snapshot.company)
-        title_changed = _normalize(new_title) != _normalize(latest_snapshot.title)
+    if company_changed or title_changed:
+        event = JobChangeEvent(
+            person_id=person.id,
+            old_company=baseline_company,
+            new_company=new_company,
+            old_title=baseline_title,
+            new_title=new_title,
+            confidence_score=confidence,
+            detected_at=datetime.utcnow(),
+            status=EventStatus.new,
+        )
+        db.add(event)
 
-        if company_changed or title_changed:
-            event = JobChangeEvent(
-                person_id=person.id,
-                old_company=latest_snapshot.company,
-                new_company=new_company,
-                old_title=latest_snapshot.title,
-                new_title=new_title,
-                confidence_score=confidence,
-                detected_at=datetime.utcnow(),
-                status=EventStatus.new,
-            )
-            db.add(event)
-
-            if company_changed:
-                person.current_company = new_company
-            if title_changed:
-                person.current_title = new_title
-    else:
-        # First snapshot — seed current fields, no event
+    if company_changed or not baseline_company:
         person.current_company = new_company or person.current_company
+    if title_changed or not baseline_title:
         person.current_title = new_title or person.current_title
 
     db.commit()
