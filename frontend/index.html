@@ -515,7 +515,13 @@
     try {
       const params = new URLSearchParams({ limit: 200 });
       if (statusFilter) params.set('status', statusFilter);
-      const events = await apiFetch('/events/?' + params);
+      let events = await apiFetch('/events/?' + params);
+
+      // "All" means all active signals — dismissed events are noise unless
+      // the user explicitly clicks the Dismissed filter pill.
+      if (!statusFilter) {
+        events = events.filter(ev => ev.status !== 'dismissed');
+      }
 
       if (!events.length) {
         tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
