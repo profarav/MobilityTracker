@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Client Mobility Monitor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f4f2;
+      --surface: #ffffff;
+      --border: #e4e2dd;
+      --text: #1a1a1a;
+      --muted: #6b6860;
+      --accent: #2d2d2d;
+      --green: #1a7a4a;
+      --green-bg: #e8f5ee;
+      --amber: #92601a;
+      --amber-bg: #fdf3e0;
+      --red: #c0392b;
+      --red-bg: #fdecea;
+      --blue: #1a4a7a;
+      --blue-bg: #e8eff8;
+      --purple: #5a1a7a;
+      --purple-bg: #f0e8f8;
+      --radius: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--accent);
+      color: #fff;
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-brand { display: flex; align-items: center; gap: 10px; }
+    .header-brand svg { opacity: 0.85; }
+    .header-brand h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+    .header-brand span { font-size: 12px; color: rgba(255,255,255,0.5); margin-left: 2px; }
+    header .last-refresh { font-size: 12px; color: rgba(255,255,255,0.45); }
+
+    /* ── Layout ── */
+    main { max-width: 1280px; margin: 0 auto; padding: 24px; }
+
+    /* ── Stats row ── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      box-shadow: var(--shadow);
+    }
+    .stat-card .label { font-size: 12px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-card .value { font-size: 32px; font-weight: 700; margin-top: 4px; letter-spacing: -0.03em; }
+    .stat-card.alert .value { color: var(--red); }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 2px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      color: var(--muted);
+      transition: color 0.15s, border-color 0.15s;
+      margin-bottom: -1px;
+    }
+    .tab-btn.active { color: var(--text); border-bottom-color: var(--text); }
+    .tab-btn:hover:not(.active) { color: var(--text); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .toolbar input[type="text"] {
+      flex: 1;
+      min-width: 200px;
+      max-width: 320px;
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px;
+      background: var(--surface);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .toolbar input[type="text"]:focus { border-color: #999; }
+    .filter-group { display: flex; gap: 4px; }
+    .filter-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--surface);
+      cursor: pointer;
+      color: var(--muted);
+      transition: all 0.15s;
+    }
+    .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .spacer { flex: 1; }
+    .btn {
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      background: var(--surface);
+      color: var(--text);
+      transition: background 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--bg); }
+    .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn.primary:hover { background: #444; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Table ── */
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      background: #fafaf9;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #fafaf9; }
+    td { padding: 11px 14px; vertical-align: middle; }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-active    { background: var(--green-bg);  color: var(--green);  }
+    .badge-inactive  { background: var(--amber-bg);  color: var(--amber);  }
+    .badge-archived  { background: var(--border);     color: var(--muted);  }
+    .badge-new       { background: var(--red-bg);    color: var(--red);    }
+    .badge-reviewed  { background: var(--blue-bg);   color: var(--blue);   }
+    .badge-dismissed { background: var(--border);     color: var(--muted);  }
+    .badge-converted { background: var(--green-bg);  color: var(--green);  }
+
+    /* ── Job change arrow display ── */
+    .change-cell { display: flex; flex-direction: column; gap: 2px; }
+    .change-row { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+    .change-row .old { color: var(--muted); text-decoration: line-through; }
+    .change-row .arrow { color: var(--muted); font-size: 11px; }
+    .change-row .new { font-weight: 500; }
+    .change-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+
+    /* ── Action buttons ── */
+    .action-group { display: flex; gap: 6px; }
+    .icon-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      cursor: pointer;
+      background: var(--surface);
+      color: var(--text);
+      transition: background 0.1s;
+      white-space: nowrap;
+    }
+    .icon-btn:hover { background: var(--bg); }
+    .icon-btn.danger { color: var(--red); }
+    .icon-btn.success { color: var(--green); }
+
+    /* ── Empty / loading states ── */
+    .empty-state {
+      padding: 48px 0;
+      text-align: center;
+      color: var(--muted);
+    }
+    .empty-state p { margin-top: 8px; font-size: 13px; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 18px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      transform: translateY(80px);
+      opacity: 0;
+      transition: transform 0.25s, opacity 0.25s;
+      z-index: 100;
+      max-width: 340px;
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.error { background: var(--red); }
+
+    /* ── Confidence bar ── */
+    .conf-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .conf-track {
+      width: 48px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .conf-fill { height: 100%; background: var(--green); border-radius: 2px; }
+    .conf-label { font-size: 12px; color: var(--muted); }
+
+    /* ── Responsive ── */
+    @media (max-width: 700px) {
+      .stats-row { grid-template-columns: 1fr; }
+      td, th { padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-brand">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="10" r="9" stroke="white" stroke-width="1.5"/>
+      <path d="M6 10 C6 7 9 5 10 5 C11 5 14 7 14 10 C14 13 11 15 10 15 C9 15 6 13 6 10Z" fill="white" opacity="0.3"/>
+      <path d="M7 10 L10 7 L13 10" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1>Client Mobility Monitor <span>— Klimt &amp; Design</span></h1>
+  </div>
+  <div class="last-refresh" id="lastRefresh">—</div>
+</header>
+
+<main>
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="label">People Tracked</div>
+      <div class="value" id="statTotal">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Active</div>
+      <div class="value" id="statActive">—</div>
+    </div>
+    <div class="stat-card" id="statChangesCard">
+      <div class="label">New Job Changes</div>
+      <div class="value" id="statChanges">—</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="people">People</button>
+    <button class="tab-btn" data-tab="events">Job Changes</button>
+  </div>
+
+  <!-- People tab -->
+  <div class="tab-panel active" id="tab-people">
+    <div class="toolbar">
+      <input type="text" id="peopleSearch" placeholder="Search by name, company, email…" />
+      <div class="spacer"></div>
+      <label class="btn" style="cursor:pointer;">
+        Import CSV
+        <input type="file" id="csvInput" accept=".csv" style="display:none" />
+      </label>
+      <button class="btn primary" id="refreshAllBtn">Refresh All</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Company</th>
+            <th>Title</th>
+            <th>Owner</th>
+            <th>Status</th>
+            <th>Last Checked</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="peopleBody">
+          <tr><td colspan="7"><div class="empty-state">Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Events tab -->
+  <div class="tab-panel" id="tab-events">
+    <div class="toolbar">
+      <div class="filter-group" id="eventFilters">
+        <button class="filter-btn active" data-status="">All</button>
+        <button class="filter-btn" data-status="new">New</button>
+        <button class="filter-btn" data-status="reviewed">Reviewed</button>
+        <button class="filter-btn" data-status="converted">Converted</button>
+        <button class="filter-btn" data-status="dismissed">Dismissed</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Person</th>
+            <th>Company Change</th>
+            <th>Title Change</th>
+            <th>Confidence</th>
+            <th>Detected</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="eventsBody">
+          <tr><td colspan="7"><div class="empty-state">Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  const API = '/api';
+  let currentEventFilter = '';
+  let peopleSearchTimer = null;
+
+  // ── Utilities ──────────────────────────────────────────────────────────────
+
+  function toast(msg, isError = false) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = isError ? 'error show' : 'show';
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.remove('show'), 3500);
+  }
+
+  function fmt(dateStr) {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function badge(status) {
+    return `<span class="badge badge-${status}">${status}</span>`;
+  }
+
+  function confBar(score) {
+    if (score == null) return '—';
+    const pct = Math.round(score * 100);
+    return `<div class="conf-bar">
+      <div class="conf-track"><div class="conf-fill" style="width:${pct}%"></div></div>
+      <span class="conf-label">${pct}%</span>
+    </div>`;
+  }
+
+  function esc(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── API calls ──────────────────────────────────────────────────────────────
+
+  async function apiFetch(path, opts = {}) {
+    const res = await fetch(API + path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || res.statusText);
+    }
+    return res.json();
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+
+  async function loadStats() {
+    try {
+      const s = await apiFetch('/stats');
+      document.getElementById('statTotal').textContent = s.total_people;
+      document.getElementById('statActive').textContent = s.active_people;
+      document.getElementById('statChanges').textContent = s.new_job_changes;
+      const card = document.getElementById('statChangesCard');
+      card.classList.toggle('alert', s.new_job_changes > 0);
+      document.getElementById('lastRefresh').textContent =
+        'Updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // ── People tab ─────────────────────────────────────────────────────────────
+
+  async function loadPeople(search = '') {
+    const tbody = document.getElementById('peopleBody');
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">Loading…</div></td></tr>';
+    try {
+      const params = new URLSearchParams({ limit: 200 });
+      if (search) params.set('search', search);
+      const people = await apiFetch('/people/?' + params);
+
+      if (!people.length) {
+        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+          <strong>No people yet.</strong>
+          <p>Import a CSV or add someone manually via the API.</p>
+        </div></td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = people.map(p => `
+        <tr>
+          <td>
+            <div style="font-weight:500">${esc(p.full_name)}</div>
+            <div style="font-size:12px;color:var(--muted)">${esc(p.work_email)}</div>
+          </td>
+          <td>${esc(p.current_company) || '<span style="color:var(--muted)">—</span>'}</td>
+          <td>${esc(p.current_title) || '<span style="color:var(--muted)">—</span>'}</td>
+          <td>${esc(p.relationship_owner) || '<span style="color:var(--muted)">—</span>'}</td>
+          <td>${badge(p.status)}</td>
+          <td style="font-size:12px;color:var(--muted)">${fmt(p.last_checked_at)}</td>
+          <td>
+            <div class="action-group">
+              <button class="icon-btn" onclick="refreshPerson('${p.id}', this)">Refresh</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">Error: ${esc(e.message)}</div></td></tr>`;
+    }
+  }
+
+  async function refreshPerson(id, btn) {
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const result = await apiFetch(`/enrichment/refresh/${id}`, { method: 'POST' });
+      if (result.job_change_detected) {
+        toast('Job change detected!');
+        switchTab('events');
+        loadEvents(currentEventFilter);
+      } else {
+        toast('No change detected.');
+      }
+      loadPeople(document.getElementById('peopleSearch').value);
+      loadStats();
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Refresh';
+    }
+  }
+
+  // ── Events tab ─────────────────────────────────────────────────────────────
+
+  async function loadEvents(statusFilter = '') {
+    const tbody = document.getElementById('eventsBody');
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">Loading…</div></td></tr>';
+    try {
+      const params = new URLSearchParams({ limit: 200 });
+      if (statusFilter) params.set('status', statusFilter);
+      const events = await apiFetch('/events/?' + params);
+
+      if (!events.length) {
+        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+          <strong>No job changes yet.</strong>
+          <p>Hit "Refresh All" on the People tab to run the mock enrichment sweep.</p>
+        </div></td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = events.map(ev => {
+        const companyChanged = (ev.old_company || '') !== (ev.new_company || '');
+        const titleChanged   = (ev.old_title   || '') !== (ev.new_title   || '');
+
+        const companyCell = companyChanged
+          ? `<div class="change-cell">
+               <div class="change-row">
+                 <span class="old">${esc(ev.old_company) || '—'}</span>
+                 <span class="arrow">→</span>
+                 <span class="new">${esc(ev.new_company) || '—'}</span>
+               </div>
+             </div>`
+          : `<span style="color:var(--muted);font-size:12px">unchanged</span>`;
+
+        const titleCell = titleChanged
+          ? `<div class="change-cell">
+               <div class="change-row">
+                 <span class="old">${esc(ev.old_title) || '—'}</span>
+                 <span class="arrow">→</span>
+                 <span class="new">${esc(ev.new_title) || '—'}</span>
+               </div>
+             </div>`
+          : `<span style="color:var(--muted);font-size:12px">unchanged</span>`;
+
+        const name = ev.person
+          ? `<div style="font-weight:500">${esc(ev.person.full_name)}</div>
+             <div style="font-size:12px;color:var(--muted)">${esc(ev.person.work_email)}</div>`
+          : `<span style="color:var(--muted)">${ev.person_id}</span>`;
+
+        const actions = ev.status === 'new'
+          ? `<div class="action-group">
+               <button class="icon-btn success" onclick="setEventStatus('${ev.id}','reviewed',this)">Mark Reviewed</button>
+               <button class="icon-btn success" onclick="setEventStatus('${ev.id}','converted',this)">Convert</button>
+               <button class="icon-btn danger"  onclick="setEventStatus('${ev.id}','dismissed',this)">Dismiss</button>
+             </div>`
+          : `<div class="action-group">
+               <button class="icon-btn" onclick="setEventStatus('${ev.id}','new',this)">Reopen</button>
+             </div>`;
+
+        return `<tr>
+          <td>${name}</td>
+          <td>${companyCell}</td>
+          <td>${titleCell}</td>
+          <td>${confBar(ev.confidence_score)}</td>
+          <td style="font-size:12px;color:var(--muted)">${fmt(ev.detected_at)}</td>
+          <td>${badge(ev.status)}</td>
+          <td>${actions}</td>
+        </tr>`;
+      }).join('');
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">Error: ${esc(e.message)}</div></td></tr>`;
+    }
+  }
+
+  async function setEventStatus(id, status, btn) {
+    btn.disabled = true;
+    try {
+      await apiFetch(`/events/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      toast(`Marked as ${status}`);
+      loadEvents(currentEventFilter);
+      loadStats();
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ── Refresh All ────────────────────────────────────────────────────────────
+
+  document.getElementById('refreshAllBtn').addEventListener('click', async function () {
+    this.disabled = true;
+    this.textContent = 'Running…';
+    try {
+      const result = await apiFetch('/enrichment/refresh-all', { method: 'POST' });
+      toast(`Refreshed ${result.refreshed} people — ${result.job_changes_detected} job change(s) detected.`);
+      loadPeople(document.getElementById('peopleSearch').value);
+      loadStats();
+      if (result.job_changes_detected > 0) {
+        loadEvents(currentEventFilter);
+      }
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      this.disabled = false;
+      this.textContent = 'Refresh All';
+    }
+  });
+
+  // ── CSV Import ─────────────────────────────────────────────────────────────
+
+  document.getElementById('csvInput').addEventListener('change', async function () {
+    if (!this.files.length) return;
+    const file = this.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    this.value = '';
+
+    try {
+      const res = await fetch(`${API}/people/import/csv`, { method: 'POST', body: formData });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail);
+      }
+      const result = await res.json();
+      toast(`Import done — ${result.created} created, ${result.updated} updated, ${result.skipped} skipped.`);
+      if (result.errors.length) console.warn('CSV import errors:', result.errors);
+      loadPeople();
+      loadStats();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
+
+  // ── People search ──────────────────────────────────────────────────────────
+
+  document.getElementById('peopleSearch').addEventListener('input', function () {
+    clearTimeout(peopleSearchTimer);
+    peopleSearchTimer = setTimeout(() => loadPeople(this.value), 300);
+  });
+
+  // ── Event filters ──────────────────────────────────────────────────────────
+
+  document.getElementById('eventFilters').addEventListener('click', function (e) {
+    const btn = e.target.closest('.filter-btn');
+    if (!btn) return;
+    this.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentEventFilter = btn.dataset.status;
+    loadEvents(currentEventFilter);
+  });
+
+  // ── Tab switching ──────────────────────────────────────────────────────────
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
+  }
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      switchTab(btn.dataset.tab);
+      if (btn.dataset.tab === 'events') loadEvents(currentEventFilter);
+    });
+  });
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+
+  loadStats();
+  loadPeople();
+</script>
+</body>
+</html>

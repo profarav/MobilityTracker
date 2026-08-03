@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mobility}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mobility}
+      POSTGRES_DB: ${POSTGRES_DB:-mobility_tracker}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mobility}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mobility}:${POSTGRES_PASSWORD:-mobility}@db:5432/${POSTGRES_DB:-mobility_tracker}
+      ENRICHMENT_PROVIDER: ${ENRICHMENT_PROVIDER:-mock}
+      APOLLO_API_KEY: ${APOLLO_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+      - ./sample_data:/app/sample_data
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  scheduler:
+    image: alpine:3.19
+    depends_on:
+      - backend
+    command: >
+      sh -c "apk add --no-cache curl &&
+      echo '0 9 1,15 * * curl -X POST http://backend:8000/enrichment/refresh-all' > /etc/crontabs/root &&
+      crond -f -l 2"
+
+volumes:
+  postgres_data:
