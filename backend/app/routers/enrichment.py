@@ -5,6 +5,7 @@ from app.database import get_db
 from app.models import Person, PersonStatus
 from app.schemas import BulkRefreshResult, RefreshResult
 from app.services.job_change_detector import detect_and_record
+from app.services.notifier import notify_job_changes, notify_single_change
 
 import os
 
@@ -31,6 +32,8 @@ def refresh_person(person_id: str, db: Session = Depends(get_db)):
         full_name=person.full_name,
     )
     event = detect_and_record(db, person, enriched)
+    if event:
+        notify_single_change(event, person)
 
     return RefreshResult(
         person_id=str(person.id),
@@ -46,6 +49,7 @@ def refresh_all(db: Session = Depends(get_db)):
 
     refreshed = job_changes = 0
     errors: list[str] = []
+    changes: list[tuple] = []
 
     for person in people:
         try:
@@ -61,8 +65,11 @@ def refresh_all(db: Session = Depends(get_db)):
             refreshed += 1
             if event:
                 job_changes += 1
+                changes.append((event, person))
         except Exception as exc:
             errors.append(f"{person.full_name}: {exc}")
+
+    notify_job_changes(changes)
 
     return BulkRefreshResult(
         refreshed=refreshed,

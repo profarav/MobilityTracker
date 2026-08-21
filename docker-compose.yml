@@ -23,6 +23,12 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-mobility}:${POSTGRES_PASSWORD:-mobility}@db:5432/${POSTGRES_DB:-mobility_tracker}
       ENRICHMENT_PROVIDER: ${ENRICHMENT_PROVIDER:-mock}
       APOLLO_API_KEY: ${APOLLO_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      NOTIFY_EMAIL: ${NOTIFY_EMAIL:-}
     ports:
       - "8000:8000"
     depends_on:
