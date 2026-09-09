@@ -51,7 +51,7 @@ services:
       - backend
     command: >
       sh -c "apk add --no-cache curl &&
-      echo '0 9 1,15 * * curl -X POST http://backend:8000/enrichment/refresh-all' > /etc/crontabs/root &&
+      echo '0 9 9,24 * * curl -X POST http://backend:8000/enrichment/refresh-all' > /etc/crontabs/root &&
       crond -f -l 2"
 
 volumes:

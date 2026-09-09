@@ -100,3 +100,36 @@ def notify_single_change(event: JobChangeEvent, person: Person) -> None:
     """Send an email for one detected job change."""
     subject = f"[Mobility] {person.full_name} changed jobs"
     _send(subject, _describe(event, person))
+
+
+def send_test_email() -> dict:
+    """Send a dummy email to verify SMTP config end-to-end.
+
+    Returns a dict describing what happened (configured / sent / error) so a
+    caller can surface it without reading server logs.
+    """
+    cfg = _config()
+    if not cfg:
+        return {
+            "configured": False,
+            "sent": False,
+            "detail": "SMTP env vars not set (SMTP_HOST/USER/PASSWORD/NOTIFY_EMAIL).",
+        }
+
+    msg = EmailMessage()
+    msg["Subject"] = "[Mobility] Test email — notifications are working"
+    msg["From"] = cfg["from"]
+    msg["To"] = cfg["to"]
+    msg.set_content(
+        "This is a test from the Client Mobility Monitor.\n"
+        "If you received this, job-change alert emails are configured correctly."
+    )
+
+    try:
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as server:
+            server.starttls()
+            server.login(cfg["user"], cfg["password"])
+            server.send_message(msg)
+        return {"configured": True, "sent": True, "detail": f"Sent to {cfg['to']}."}
+    except Exception as exc:
+        return {"configured": True, "sent": False, "detail": f"{type(exc).__name__}: {exc}"}
