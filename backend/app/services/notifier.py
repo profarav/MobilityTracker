@@ -1,17 +1,30 @@
 """
 Email notifications for detected job changes.
 
-Sends via SMTP using credentials from environment variables. If SMTP is not
-configured (no host / user / password), sending is skipped silently so that
-enrichment still works in dev / mock mode without mail set up.
+Two transports, chosen at send time:
+
+  1. Resend HTTP API (preferred) — used when RESEND_API_KEY is set. Sends over
+     HTTPS/443, which works on Railway (Railway blocks outbound SMTP).
+  2. SMTP (fallback) — used when Resend isn't configured.
+
+If neither is configured, sending is skipped silently so enrichment still
+works in dev / mock mode without mail set up.
 
 Env vars:
+  NOTIFY_EMAIL    recipient for job-change alerts
+
+  # Resend (preferred)
+  RESEND_API_KEY  Resend API key
+  RESEND_FROM     From address; must be on a verified domain to reach
+                  arbitrary recipients. Defaults to onboarding@resend.dev,
+                  which can ONLY deliver to the Resend account owner.
+
+  # SMTP (fallback)
   SMTP_HOST       e.g. smtp.gmail.com
   SMTP_PORT       e.g. 587  (STARTTLS)
   SMTP_USER       the account that authenticates to the SMTP server
   SMTP_PASSWORD   app password / SMTP password
   SMTP_FROM       From address (defaults to SMTP_USER)
-  NOTIFY_EMAIL    recipient for job-change alerts (e.g. Hugh)
 """
 
 import os
@@ -22,9 +35,45 @@ import logging
 from email.message import EmailMessage
 from typing import Optional
 
+import httpx
+
 from app.models import JobChangeEvent, Person
 
 logger = logging.getLogger("notifier")
+
+RESEND_ENDPOINT = "https://api.resend.com/emails"
+
+
+def _resend_config() -> Optional[dict]:
+    key = os.environ.get("RESEND_API_KEY", "").strip()
+    recipient = os.environ.get("NOTIFY_EMAIL", "").strip()
+    if not (key and recipient):
+        return None
+    return {
+        "key": key,
+        "from": os.environ.get("RESEND_FROM", "").strip() or "onboarding@resend.dev",
+        "to": recipient,
+    }
+
+
+def _send_via_resend(rc: dict, subject: str, body: str) -> tuple[bool, str]:
+    """Send through Resend's HTTP API. Returns (sent, detail)."""
+    try:
+        resp = httpx.post(
+            RESEND_ENDPOINT,
+            headers={
+                "Authorization": f"Bearer {rc['key']}",
+                "Content-Type": "application/json",
+                "User-Agent": "MobilityMonitor/1.0",  # avoid Cloudflare UA block
+            },
+            json={"from": rc["from"], "to": [rc["to"]], "subject": subject, "text": body},
+            timeout=20,
+        )
+        if resp.status_code >= 400:
+            return False, f"HTTP {resp.status_code}: {resp.text}"
+        return True, f"Sent to {rc['to']} (id {resp.json().get('id')})."
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
 
 
 def _config() -> Optional[dict]:
@@ -104,9 +153,19 @@ def _open_server(cfg: dict) -> smtplib.SMTP:
 
 
 def _send(subject: str, body: str) -> None:
+    # Prefer Resend (works on Railway); fall back to SMTP.
+    rc = _resend_config()
+    if rc:
+        sent, detail = _send_via_resend(rc, subject, body)
+        if sent:
+            logger.info("Sent job-change email via Resend: %s", detail)
+        else:
+            logger.error("Resend send failed: %s", detail)
+        return
+
     cfg = _config()
     if not cfg:
-        logger.info("SMTP not configured — skipping email notification.")
+        logger.info("Email not configured — skipping notification.")
         return
 
     msg = EmailMessage()
@@ -150,17 +209,28 @@ def notify_single_change(event: JobChangeEvent, person: Person) -> None:
 
 
 def send_test_email() -> dict:
-    """Send a dummy email to verify SMTP config end-to-end.
+    """Send a dummy email to verify the configured transport end-to-end.
 
-    Returns a dict describing what happened (configured / sent / error) so a
+    Returns a dict describing what happened (transport / sent / detail) so a
     caller can surface it without reading server logs.
     """
+    subject = "[Mobility] Test email — notifications are working"
+    body = (
+        "This is a test from the Client Mobility Monitor.\n"
+        "If you received this, job-change alert emails are configured correctly."
+    )
+
+    rc = _resend_config()
+    if rc:
+        sent, detail = _send_via_resend(rc, subject, body)
+        return {"transport": "resend", "sent": sent, "detail": detail}
+
     cfg = _config()
     if not cfg:
         return {
-            "configured": False,
+            "transport": "none",
             "sent": False,
-            "detail": "SMTP env vars not set (SMTP_HOST/USER/PASSWORD/NOTIFY_EMAIL).",
+            "detail": "No transport configured (set RESEND_API_KEY+NOTIFY_EMAIL, or SMTP_*).",
         }
 
     msg = EmailMessage()
@@ -178,6 +248,6 @@ def send_test_email() -> dict:
             server.send_message(msg)
         finally:
             server.quit()
-        return {"configured": True, "sent": True, "detail": f"Sent to {cfg['to']}."}
+        return {"transport": "smtp", "sent": True, "detail": f"Sent to {cfg['to']}."}
     except Exception as exc:
-        return {"configured": True, "sent": False, "detail": f"{type(exc).__name__}: {exc}"}
+        return {"transport": "smtp", "sent": False, "detail": f"{type(exc).__name__}: {exc}"}
