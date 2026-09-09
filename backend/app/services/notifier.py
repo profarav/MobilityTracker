@@ -15,6 +15,8 @@ Env vars:
 """
 
 import os
+import ssl
+import socket
 import smtplib
 import logging
 from email.message import EmailMessage
@@ -57,6 +59,50 @@ def _describe(event: JobChangeEvent, person: Person) -> str:
     return "\n".join(lines)
 
 
+def _open_server(cfg: dict) -> smtplib.SMTP:
+    """
+    Open an authenticated SMTP connection, forcing IPv4.
+
+    Railway containers often lack an IPv6 route, so a normal connect to
+    smtp.gmail.com resolves to an AAAA address and fails with
+    "[Errno 101] Network is unreachable". We resolve the A (IPv4) record
+    explicitly and connect to that, while keeping the real hostname for TLS
+    SNI / certificate validation.
+    """
+    infos = socket.getaddrinfo(cfg["host"], cfg["port"], socket.AF_INET, socket.SOCK_STREAM)
+    if not infos:
+        raise OSError(f"No IPv4 address found for {cfg['host']}")
+    ip = infos[0][4][0]
+    context = ssl.create_default_context()
+
+    if cfg["port"] == 465:
+        raw = socket.create_connection((ip, cfg["port"]), timeout=25)
+        sock = context.wrap_socket(raw, server_hostname=cfg["host"])
+        server = smtplib.SMTP_SSL(timeout=25)
+        server._host = cfg["host"]
+        server.sock = sock
+        server.file = None
+        code, _ = server.getreply()
+        if code != 220:
+            server.close()
+            raise smtplib.SMTPConnectError(code, "server refused connection")
+    else:
+        server = smtplib.SMTP(timeout=25)
+        server._host = cfg["host"]  # used as TLS server_hostname by starttls()
+        server.sock = socket.create_connection((ip, cfg["port"]), timeout=25)
+        server.file = None
+        code, _ = server.getreply()
+        if code != 220:
+            server.close()
+            raise smtplib.SMTPConnectError(code, "server refused connection")
+        server.ehlo()
+        server.starttls(context=context)
+
+    server.ehlo()
+    server.login(cfg["user"], cfg["password"])
+    return server
+
+
 def _send(subject: str, body: str) -> None:
     cfg = _config()
     if not cfg:
@@ -70,10 +116,11 @@ def _send(subject: str, body: str) -> None:
     msg.set_content(body)
 
     try:
-        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as server:
-            server.starttls()
-            server.login(cfg["user"], cfg["password"])
+        server = _open_server(cfg)
+        try:
             server.send_message(msg)
+        finally:
+            server.quit()
         logger.info("Sent job-change email to %s", cfg["to"])
     except Exception as exc:  # don't let a mail failure break enrichment
         logger.error("Failed to send job-change email: %s", exc)
@@ -126,10 +173,11 @@ def send_test_email() -> dict:
     )
 
     try:
-        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as server:
-            server.starttls()
-            server.login(cfg["user"], cfg["password"])
+        server = _open_server(cfg)
+        try:
             server.send_message(msg)
+        finally:
+            server.quit()
         return {"configured": True, "sent": True, "detail": f"Sent to {cfg['to']}."}
     except Exception as exc:
         return {"configured": True, "sent": False, "detail": f"{type(exc).__name__}: {exc}"}
