@@ -187,8 +187,15 @@ def _send(subject: str, body: str) -> None:
 
 
 def _is_company_move(event: JobChangeEvent) -> bool:
-    """True when the employer actually changed (vs. a title change at the same company)."""
+    """True when the employer actually changed."""
     return _company_changed(event.new_company, event.old_company)
+
+
+def _is_title_change(event: JobChangeEvent) -> bool:
+    """True when the title changed (independent of whether the company did)."""
+    old = (event.old_title or "").strip().lower()
+    new = (event.new_title or "").strip().lower()
+    return bool(old) and old != new
 
 
 def _section(title: str, pairs: list[tuple[JobChangeEvent, Person]]) -> str:
@@ -198,12 +205,16 @@ def _section(title: str, pairs: list[tuple[JobChangeEvent, Person]]) -> str:
 
 
 def notify_job_changes(pairs: list[tuple[JobChangeEvent, Person]]) -> None:
-    """Send one digest email, split into Company Changes and Job Changes sections."""
+    """Send one digest email, split into Company Changes and Job Changes sections.
+
+    The sections are independent: someone who both moved employer and changed
+    title appears in both.
+    """
     if not pairs:
         return
 
     company_moves = [(e, p) for e, p in pairs if _is_company_move(e)]
-    job_changes = [(e, p) for e, p in pairs if not _is_company_move(e)]
+    job_changes = [(e, p) for e, p in pairs if _is_title_change(e)]
 
     subject = (
         f"[Mobility] {len(company_moves)} company change"
