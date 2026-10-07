@@ -38,6 +38,7 @@ from typing import Optional
 import httpx
 
 from app.models import JobChangeEvent, Person
+from app.services.job_change_detector import _company_changed
 
 logger = logging.getLogger("notifier")
 
@@ -185,20 +186,38 @@ def _send(subject: str, body: str) -> None:
         logger.error("Failed to send job-change email: %s", exc)
 
 
+def _is_company_move(event: JobChangeEvent) -> bool:
+    """True when the employer actually changed (vs. a title change at the same company)."""
+    return _company_changed(event.new_company, event.old_company)
+
+
+def _section(title: str, pairs: list[tuple[JobChangeEvent, Person]]) -> str:
+    bar = "=" * 48
+    items = "\n\n".join(_describe(e, p) for e, p in pairs)
+    return f"{title} ({len(pairs)})\n{bar}\n\n{items}"
+
+
 def notify_job_changes(pairs: list[tuple[JobChangeEvent, Person]]) -> None:
-    """Send one digest email covering all job changes in this batch."""
+    """Send one digest email, split into Company Changes and Job Changes sections."""
     if not pairs:
         return
 
-    count = len(pairs)
+    company_moves = [(e, p) for e, p in pairs if _is_company_move(e)]
+    job_changes = [(e, p) for e, p in pairs if not _is_company_move(e)]
+
     subject = (
-        f"[Mobility] {count} job change{'s' if count != 1 else ''} detected"
+        f"[Mobility] {len(company_moves)} company change"
+        f"{'s' if len(company_moves) != 1 else ''}, "
+        f"{len(job_changes)} job change{'s' if len(job_changes) != 1 else ''}"
     )
-    header = (
-        f"{count} contact{'s' if count != 1 else ''} changed jobs "
-        f"in the latest refresh:\n\n"
-    )
-    body = header + "\n\n".join(_describe(e, p) for e, p in pairs)
+
+    sections = []
+    if company_moves:
+        sections.append(_section("COMPANY CHANGES — moved employer", company_moves))
+    if job_changes:
+        sections.append(_section("JOB CHANGES — new title, same company", job_changes))
+
+    body = "\n\n\n".join(sections)
     _send(subject, body)
 
 
